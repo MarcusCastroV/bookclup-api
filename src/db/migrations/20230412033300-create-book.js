@@ -12,14 +12,14 @@ module.exports = {
       author_id: {
         type: Sequelize.INTEGER,
         references: { model: 'Authors', key: 'id' },
-        onUpdate: 'Cascade',
+        onUpdate: 'CASCADE',
         onDelete: 'SET NULL',
         allowNull: true,
       },
       category_id: {
         type: Sequelize.INTEGER,
         references: { model: 'Categories', key: 'id' },
-        onUpdate: 'Cascade',
+        onUpdate: 'CASCADE',
         onDelete: 'SET NULL',
         allowNull: true,
       },
