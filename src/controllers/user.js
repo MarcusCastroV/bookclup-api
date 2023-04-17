@@ -4,6 +4,7 @@ import * as Yup from "yup";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import Mail from "../libs/Mail";
+import UploadImage from "../libs/UploadImage";
 
 class UserController {
   async login(req, res) {
@@ -94,6 +95,89 @@ class UserController {
     }
   }
 
+  async update(req, res) {
+    try {
+      const schema = Yup.object().shape({
+        name: Yup.string().min(3, "Nome deve conter ao menos 3 caracteres."),
+        email: Yup.string().email("E-mail inválido"),
+        password: Yup.string().min(
+          6,
+          "Senha deve conter ao menos 6 caracteres."
+        ),
+      });
+
+      await schema.validate(req.body);
+      const { name, email, password } = req.body;
+      const user = await User.findByPk(req.userId);
+
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado." });
+      }
+
+      if (name) {
+        user.name = name;
+      }
+
+      if (email) {
+        user.email = email;
+      }
+
+      if (password) {
+        user.password_hash = await bcrypt.hash(password, 8);
+      }
+
+      await user.save();
+
+      return res.json({ user });
+    } catch (error) {
+      console.log({ error });
+      return res.status(400).json({ error: error?.message });
+    }
+  }
+
+  async updateAvatar(req, res) {
+    try {
+      const schema = Yup.object().shape({
+        base64: Yup.string().required("Base64 é obrigatório."),
+        mime: Yup.string().required("Mime é obrigatório."),
+      });
+
+      await schema.validate(req.body);
+      const { base64, mime } = req.body;
+      const user = await User.findByPk(req.userId);
+
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado." });
+      }
+
+      if(user.avatar_url) {
+        const splitted = user.avatar_url.split('/')
+        const oldkey = splitted[splitted.lenght - 1]
+        const deleteResponse = await UploadImage.delete(oldkey)
+        if(deleteResponse.error) {
+          return res.status(500).json({ error:deleteResponse })
+        }
+      }
+
+      const key = `user_${user.id}_${new Date().getTime()}`;
+      const response = await UploadImage.upload(key, base64, mime);
+
+      if (response?.error) {
+        return res
+          .status(400)
+          .json({ error: "Error ao fazer upload da imagem" });
+      }
+
+      user.avatar_url = response?.location;
+
+      await user.save()
+
+      return res.json(user);
+    } catch (error) {
+      return res.status(400).json({ error: error?.message });
+    }
+  }
+
   async get(req, res) {
     try {
       if (!req.userId) {
@@ -150,60 +234,60 @@ class UserController {
     }
   }
   async resetPassword(req, res) {
-   try {
-    const schema = Yup.object().shape({
-      email: Yup.string()
-        .email("E-mail inválido")
-        .required("E-mail é obrigatório."),
-      token: Yup.string().required("Token é obrigatório"),
-      password: Yup.string()
-        .required("Senha é obrigatório")
-        .min(6, "Senha deve conter ao menos 6 caracteres."),
-    });
+    try {
+      const schema = Yup.object().shape({
+        email: Yup.string()
+          .email("E-mail inválido")
+          .required("E-mail é obrigatório."),
+        token: Yup.string().required("Token é obrigatório"),
+        password: Yup.string()
+          .required("Senha é obrigatório")
+          .min(6, "Senha deve conter ao menos 6 caracteres."),
+      });
 
-    await schema.validate(req.body);
+      await schema.validate(req.body);
 
-    const user = await User.findOne({ where: { email: req.body.email } });
+      const user = await User.findOne({ where: { email: req.body.email } });
 
-    if (!user) {
-      return res.status(404).json({ error: "Usuário não encontrado!" });
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado!" });
+      }
+
+      if (!user.reset_password_token && !user.reset_password_token_sent_at) {
+        return res
+          .status(404)
+          .json({ error: "Alteração de senha não foi solicitada" });
+      }
+
+      const hoursDifference = differenceInHours(
+        new Date(),
+        user.reset_password_token_sent_at
+      );
+      if (hoursDifference > 3) {
+        return res.status(401).json({ error: "Token expirado" });
+      }
+
+      const checkToken = await bcrypt.compare(
+        req.body.token,
+        user.reset_password_token
+      );
+
+      if (!checkToken) {
+        return res.status(401).json({ error: "Token inválido!" });
+      }
+
+      const password_hash = await bcrypt.hash(req.body.password, 8);
+
+      await user.update({
+        password_hash,
+        reset_password_token: null,
+        reset_password_token_sent_at: null,
+      });
+
+      return res.status(200).json({ success: true });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message });
     }
-
-    if (!user.reset_password_token && !user.reset_password_token_sent_at) {
-      return res
-        .status(404)
-        .json({ error: "Alteração de senha não foi solicitada" });
-    }
-
-    const hoursDifference = differenceInHours(
-      new Date(),
-      user.reset_password_token_sent_at,
-    );
-    if(hoursDifference > 3) {
-      return res.status(401).json({ error: "Token expirado"})    
-    }
-
-    const checkToken = await bcrypt.compare(
-      req.body.token,
-      user.reset_password_token
-    );
-
-    if (!checkToken) {
-      return res.status(401).json({ error: "Token inválido!" });
-    }
-
-    const password_hash = await bcrypt.hash(req.body.password, 8)
-
-    await user.update({
-      password_hash,
-      reset_password_token: null,
-      reset_password_token_sent_at: null
-    })
-
-    return res.status(200).json({ success:true })
-   } catch (error) {
-    return res.status(400).json({ error: error?.message });
-   }
   }
 }
 

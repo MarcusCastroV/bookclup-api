@@ -1,6 +1,5 @@
-import { User, Book, UserBook } from "../models";
+import { User, Book, UserBook, Author } from "../models";
 import * as Yup from "yup";
-import user from "./user";
 
 class UserBookController {
   async create(req, res) {
@@ -55,6 +54,13 @@ class UserBookController {
           {
             model: Book,
             as: "book",
+            include: [
+              {
+                model: Author,
+                as: 'author',
+                attributes: ['name']
+              }
+            ]
           },
         ],
       });
